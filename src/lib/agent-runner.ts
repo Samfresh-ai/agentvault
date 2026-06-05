@@ -25,6 +25,8 @@ export interface AgentReasoning {
 }
 
 const MODEL_RETRY_DELAYS_MS = [750, 1_500];
+const DEFAULT_NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1";
+const DEFAULT_NVIDIA_TIMEOUT_MS = 120_000;
 
 export class AIInferenceError extends Error {
   constructor(message: string) {
@@ -50,11 +52,17 @@ export async function runAgentWithModel(
     return runWithAnthropic(agentRole, action, payload);
   }
 
+  if (process.env.NVIDIA_API_KEY || process.env.NVCF_RUN_KEY) {
+    return runWithNvidia(agentRole, action, payload);
+  }
+
   if (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY) {
     return runWithGemini(agentRole, action, payload);
   }
 
-  throw new AIInferenceError("No live model key configured. Set ANTHROPIC_API_KEY, GEMINI_API_KEY, or GOOGLE_API_KEY.");
+  throw new AIInferenceError(
+    "No live model key configured. Set ANTHROPIC_API_KEY, NVIDIA_API_KEY, GEMINI_API_KEY, or GOOGLE_API_KEY.",
+  );
 }
 
 async function runWithAnthropic(
@@ -125,6 +133,130 @@ ${reasoningPrompt(action, payload)}`;
   }
 
   throw new AIInferenceError("Gemini inference failed");
+}
+
+async function runWithNvidia(
+  agentRole: AgentRunnerRole,
+  action: string,
+  payload: Record<string, unknown>,
+): Promise<AgentReasoning> {
+  const apiKey = process.env.NVIDIA_API_KEY || process.env.NVCF_RUN_KEY;
+  if (!apiKey) {
+    throw new AIInferenceError("NVIDIA API key is not configured");
+  }
+
+  const baseUrl = (process.env.NVIDIA_BASE_URL || DEFAULT_NVIDIA_BASE_URL).replace(/\/+$/, "");
+  const model = process.env.NVIDIA_MODEL || "z-ai/glm-5.1";
+  const maxTokens = Number(process.env.NVIDIA_MAX_TOKENS || "512");
+  const timeoutMs = Number(process.env.NVIDIA_TIMEOUT_MS || DEFAULT_NVIDIA_TIMEOUT_MS);
+
+  for (let attempt = 0; attempt <= MODEL_RETRY_DELAYS_MS.length; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const response = await fetch(`${baseUrl}/chat/completions`, {
+        method: "POST",
+        signal: controller.signal,
+        headers: {
+          authorization: `Bearer ${apiKey}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          model,
+          messages: [{ role: "user", content: nvidiaReasoningPrompt(agentRole, action, payload) }],
+          temperature: 1,
+          top_p: 1,
+          max_tokens: maxTokens,
+          stream: true,
+        }),
+      });
+
+      if (!response.ok) {
+        const body = await response.text().catch(() => "");
+        const detail = body ? `: ${body.slice(0, 500)}` : "";
+        throw new Error(`NVIDIA inference failed (${response.status})${detail}`);
+      }
+
+      const text = await readNvidiaStream(response);
+      return parseReasoning(text, `nvidia:${model}`);
+    } catch (error) {
+      if (error instanceof AIInferenceError) {
+        throw error;
+      }
+
+      const canRetry = attempt < MODEL_RETRY_DELAYS_MS.length && isTransientModelError(error);
+      if (canRetry) {
+        await sleep(MODEL_RETRY_DELAYS_MS[attempt]);
+        continue;
+      }
+
+      throw new AIInferenceError(errorMessage(error, "NVIDIA inference failed"));
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  throw new AIInferenceError("NVIDIA inference failed");
+}
+
+async function readNvidiaStream(response: Response) {
+  if (!response.body) {
+    throw new AIInferenceError("NVIDIA inference response did not include a stream body");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let pending = "";
+  let content = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+
+    pending += decoder.decode(value, { stream: true });
+    const lines = pending.split(/\r?\n/);
+    pending = lines.pop() ?? "";
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith("data:")) {
+        continue;
+      }
+
+      const data = trimmed.slice("data:".length).trim();
+      if (!data || data === "[DONE]") {
+        continue;
+      }
+
+      const parsed = JSON.parse(data) as {
+        choices?: Array<{ delta?: { content?: string | null }; message?: { content?: string | null } }>;
+      };
+      content += parsed.choices?.[0]?.delta?.content ?? parsed.choices?.[0]?.message?.content ?? "";
+    }
+  }
+
+  return content.trim();
+}
+
+function nvidiaReasoningPrompt(agentRole: AgentRunnerRole, action: string, payload: Record<string, unknown>) {
+  const role = {
+    BUDGET_AGENT:
+      "You are BudgetAgent. You can only check budgets and verify funds. Decide if the requested spend is within scope.",
+    VENDOR_AGENT:
+      "You are VendorAgent. You can generate purchase orders and contact approved vendors only when delegated scope allows it.",
+    ORCHESTRATOR:
+      "You are OrchestratorAgent. Create a scoped delegation plan for BudgetAgent and VendorAgent.",
+  }[agentRole];
+
+  return `${role}
+Action: ${action}
+Payload: ${JSON.stringify(payload)}
+
+Return only compact JSON:
+{"reasoning":"one concise sentence","decision":"APPROVED|REJECTED|COMPLETED|INSUFFICIENT_FUNDS","data":{}}`;
 }
 
 function reasoningPrompt(action: string, payload: Record<string, unknown>) {

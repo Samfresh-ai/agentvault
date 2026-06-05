@@ -80,12 +80,17 @@ NEXT_PUBLIC_T3_NETWORK="Terminal 3 Testnet"
 # Use one live model provider. Anthropic is preferred when both are set.
 ANTHROPIC_API_KEY=""
 ANTHROPIC_MODEL="claude-sonnet-4-5"
+NVIDIA_API_KEY=""
+NVIDIA_BASE_URL="https://integrate.api.nvidia.com/v1"
+NVIDIA_MODEL="z-ai/glm-5.1"
+NVIDIA_MAX_TOKENS="512"
+NVIDIA_TIMEOUT_MS="120000"
 GEMINI_API_KEY=""
 # GOOGLE_API_KEY also works for Gemini if GEMINI_API_KEY is not set.
 GEMINI_MODEL="gemini-2.5-flash"
 ```
 
-`ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, or `GOOGLE_API_KEY` is required for the demo. AgentVault intentionally fails the reasoning step when no live model key is configured; it does not fall back to canned agent prose.
+`ANTHROPIC_API_KEY`, `NVIDIA_API_KEY`, `GEMINI_API_KEY`, or `GOOGLE_API_KEY` is required for the demo. AgentVault intentionally fails the reasoning step when no live model key is configured; it does not fall back to canned agent prose. When multiple providers are configured, AgentVault tries Anthropic first, then NVIDIA, then Gemini/Google.
 
 Useful verification commands:
 
@@ -157,7 +162,7 @@ written to the signed audit log.
 ## Known limitations
 
 - The public SDK/docs do not expose the exact high-level programmatic Agent Auth methods assumed by the bounty brief, so delegated credential issuance/revocation is mocked behind a replaceable adapter. Terminal 3's docs do now document dashboard-level AI agent delegation and revocation.
-- Live model reasoning requires `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, or `GOOGLE_API_KEY` with available provider quota. Missing, invalid, or quota-exhausted model credentials block Step 1 instead of silently producing deterministic output.
+- Live model reasoning requires `ANTHROPIC_API_KEY`, `NVIDIA_API_KEY`, `GEMINI_API_KEY`, or `GOOGLE_API_KEY` with available provider quota. Missing, invalid, or quota-exhausted model credentials block Step 1 instead of silently producing deterministic output.
 - Demo reset clears transient tasks and restores active demo delegations, but it does not delete audit records. No `/api/audit` update or delete route exists.
 - SQLite is local-only and intended for the submission demo, not shared enterprise deployment.
 
