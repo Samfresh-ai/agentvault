@@ -82,8 +82,6 @@ GEMINI_MODEL="gemini-2.5-flash"
 
 `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, or `GOOGLE_API_KEY` is required for the demo. AgentVault intentionally fails the reasoning step when no live model key is configured; it does not fall back to canned agent prose.
 
-Google OAuth was used for the external Terminal 3 claim flow. AgentVault itself does not add an in-app login layer because the bounty MVP explicitly keeps user authentication out of scope.
-
 ## Demo walkthrough
 
 1. Open `/demo`.
@@ -120,7 +118,7 @@ Every action -> verifyScope -> auditSignature -> AuditLog
 |---|---|
 | **How big is the problem** | Every enterprise deploying AI agents needs least-privilege authorization. No production standard exists today. This is a foundational infrastructure gap across banking, government, healthcare, and corporate procurement — Terminal 3's named client segments. |
 | **How stable is the agent** | All 6 demo steps complete reliably. Scope violations throw hard errors, never silent failures. The Claude/Gemini reasoning step fails loudly if no model key is configured. `/api/demo/reset` enables repeatable demos without restarting the server. |
-| **How creative is the solution** | Most submissions will build a user-facing auth flow. AgentVault treats the *agent itself* as the identity holder — a scoped, revocable, TEE-backed credential issued to a non-human actor. That is the primitive Terminal 3's enterprise clients actually need. |
+| **How creative is the solution** | AgentVault treats the *agent itself* as the identity holder — a scoped, revocable, TEE-backed credential issued to a non-human actor. That is the primitive Terminal 3's enterprise clients actually need. |
 
 ## Known limitations
 
