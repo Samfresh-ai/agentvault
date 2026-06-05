@@ -2,9 +2,10 @@ import type { Agent, Delegation } from "@prisma/client";
 import { writeAuditLog } from "@/lib/audit";
 import { AIInferenceError, runAgentWithGemini } from "@/lib/agent-runner";
 import { prisma } from "@/lib/prisma";
-import { verifyScope, ScopeViolationError } from "@/lib/scope-check";
+import { verifyDelegationAccess, verifyDelegationValue, ScopeViolationError } from "@/lib/scope-check";
 import { ensureDemoSeed, restoreDemoDelegations } from "@/lib/seed";
 import { t3 } from "@/lib/t3-sdk";
+import { taskValueFromPayload, TaskInputError } from "@/lib/task-validation";
 
 export async function getDemoState(limit = 10) {
   await ensureDemoSeed();
@@ -39,7 +40,6 @@ export async function getDemoState(limit = 10) {
 export async function resetDemo() {
   await restoreDemoDelegations();
   await prisma.task.deleteMany();
-  await prisma.auditLog.deleteMany();
   return getDemoState();
 }
 
@@ -160,7 +160,9 @@ async function executeSubAgentTask(step: number, agent: Agent, action: string, p
   }
 
   try {
-    verifyScope(delegation, action, Number(payload.totalValue ?? 0));
+    verifyDelegationAccess(delegation, action);
+    const taskValue = taskValueFromPayload(action, payload);
+    verifyDelegationValue(delegation, action, taskValue);
     const role = agent.name === "BudgetAgent" ? "BUDGET_AGENT" : "VENDOR_AGENT";
     const reasoning = await runAgentWithGemini(role, action, payload);
 
@@ -190,14 +192,17 @@ async function executeSubAgentTask(step: number, agent: Agent, action: string, p
       reasoning,
     };
   } catch (error) {
-    if (error instanceof ScopeViolationError) {
+    if (error instanceof ScopeViolationError || error instanceof TaskInputError) {
+      const reason = error instanceof ScopeViolationError ? error.violationType : error.code;
+      const detail = error instanceof ScopeViolationError ? error.detail : error.message;
+
       await writeAuditLog({
         agent,
         delegation,
         action,
         payload,
         outcome: "REJECTED",
-        reason: error.violationType,
+        reason,
       });
 
       await prisma.task.create({
@@ -205,11 +210,11 @@ async function executeSubAgentTask(step: number, agent: Agent, action: string, p
           agentId: agent.id,
           description: action,
           status: "BLOCKED",
-          result: JSON.stringify({ reason: error.violationType, detail: error.detail }),
+          result: JSON.stringify({ reason, detail }),
         },
       });
 
-      return rejection(step, agent, delegation, action, error.violationType, error.detail, payload);
+      return rejection(step, agent, delegation, action, reason, detail, payload);
     }
 
     if (error instanceof AIInferenceError) {

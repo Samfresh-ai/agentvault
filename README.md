@@ -82,6 +82,21 @@ GEMINI_MODEL="gemini-2.5-flash"
 
 `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, or `GOOGLE_API_KEY` is required for the demo. AgentVault intentionally fails the reasoning step when no live model key is configured; it does not fall back to canned agent prose.
 
+Useful verification commands:
+
+```bash
+npm run lint
+npm run typecheck
+npm test
+npm run build
+npm audit --audit-level=moderate
+```
+
+With the app running locally, `npm run security:smoke` checks the core security story:
+BudgetAgent can only check budget, VendorAgent cannot exceed its $50,000 cap,
+malformed `totalValue` values are rejected, revocation blocks later actions, and
+demo reset preserves the audit trail.
+
 ## Demo walkthrough
 
 1. Open `/demo`.
@@ -112,6 +127,20 @@ OrchestratorAgent -- T3 identity / root credential
 Every action -> verifyScope -> auditSignature -> AuditLog
 ```
 
+## Security behavior
+
+AgentVault validates task execution input before any sub-agent business execution.
+For value-bearing actions like `CHECK_BUDGET`, `VERIFY_FUNDS`, and `GENERATE_PO`,
+`payload.totalValue` must be a finite, non-negative JSON number. Missing values,
+strings like `"60000 USD"`, objects, arrays, `null`, `NaN`, and negative values are
+rejected before the agent runner is called.
+
+Authorization still lives in `verifyScope()`. LLM output is reasoning only; it cannot
+approve, deny, override, or bypass scope checks. Scope failures return structured JSON
+with stable reason codes such as `ACTION_NOT_PERMITTED`, `VALUE_EXCEEDS_SCOPE`,
+`CREDENTIAL_REVOKED`, and `INVALID_TASK_VALUE`, and rejected sub-agent attempts are
+written to the signed audit log.
+
 ## Why This Wins
 
 | Judging Criterion | AgentVault's Answer |
@@ -124,7 +153,7 @@ Every action -> verifyScope -> auditSignature -> AuditLog
 
 - The public SDK/docs did not expose the exact high-level Agent Auth methods assumed by the bounty brief, so delegated credential issuance/revocation is mocked behind a replaceable adapter.
 - Live model reasoning requires `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, or `GOOGLE_API_KEY`. Missing or invalid model credentials block Step 1 instead of silently producing deterministic output.
-- Demo reset clears audit records through `/api/demo/reset` for repeatable hackathon demos. No `/api/audit` update or delete route exists.
+- Demo reset clears transient tasks and restores active demo delegations, but it does not delete audit records. No `/api/audit` update or delete route exists.
 - SQLite is local-only and intended for the submission demo, not shared enterprise deployment.
 
 ## What This Unlocks
