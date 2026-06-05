@@ -24,6 +24,8 @@ export interface AgentReasoning {
   model: string;
 }
 
+const MODEL_RETRY_DELAYS_MS = [750, 1_500];
+
 export class AIInferenceError extends Error {
   constructor(message: string) {
     super(message);
@@ -88,25 +90,41 @@ async function runWithGemini(
   action: string,
   payload: Record<string, unknown>,
 ): Promise<AgentReasoning> {
-  try {
-    const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
-    if (!apiKey) {
-      throw new AIInferenceError("Gemini API key is not configured");
-    }
-
-    const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
-    const ai = new GoogleGenAI({ apiKey });
-    const response = await ai.models.generateContent({
-      model,
-      contents: `${AGENT_PROMPTS[agentRole]}
-
-${reasoningPrompt(action, payload)}`,
-    });
-
-    return parseReasoning(response.text ?? "", `google:${model}`);
-  } catch (error) {
-    throw new AIInferenceError(error instanceof Error ? error.message : "Gemini inference failed");
+  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+  if (!apiKey) {
+    throw new AIInferenceError("Gemini API key is not configured");
   }
+
+  const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+  const ai = new GoogleGenAI({ apiKey });
+  const contents = `${AGENT_PROMPTS[agentRole]}
+
+${reasoningPrompt(action, payload)}`;
+
+  for (let attempt = 0; attempt <= MODEL_RETRY_DELAYS_MS.length; attempt += 1) {
+    try {
+      const response = await ai.models.generateContent({
+        model,
+        contents,
+      });
+
+      return parseReasoning(response.text ?? "", `google:${model}`);
+    } catch (error) {
+      if (error instanceof AIInferenceError) {
+        throw error;
+      }
+
+      const canRetry = attempt < MODEL_RETRY_DELAYS_MS.length && isTransientModelError(error);
+      if (canRetry) {
+        await sleep(MODEL_RETRY_DELAYS_MS[attempt]);
+        continue;
+      }
+
+      throw new AIInferenceError(errorMessage(error, "Gemini inference failed"));
+    }
+  }
+
+  throw new AIInferenceError("Gemini inference failed");
 }
 
 function reasoningPrompt(action: string, payload: Record<string, unknown>) {
@@ -140,4 +158,24 @@ function parseReasoning(text: string, model: string): AgentReasoning {
       model,
     };
   }
+}
+
+function isTransientModelError(error: unknown) {
+  const message = errorMessage(error, "");
+  return (
+    message.includes('"code":429') ||
+    message.includes('"code":503') ||
+    message.includes('"status":"RESOURCE_EXHAUSTED"') ||
+    message.includes('"status":"UNAVAILABLE"') ||
+    message.includes("429") ||
+    message.includes("503")
+  );
+}
+
+function errorMessage(error: unknown, fallback: string) {
+  return error instanceof Error ? error.message : fallback;
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

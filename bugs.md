@@ -16,7 +16,7 @@ Bug report file: https://github.com/Samfresh-ai/agentvault/blob/main/bugs.md
 | Major | 9 |
 | Minor | 4 |
 
-Core finding: `@terminal3/t3n-sdk@3.4.3` exists on npm and contains real, well-structured lower-level primitives. However, the high-level Agent Auth interface described in the bounty brief — `agent.create`, `credential.issue`, `credential.revoke`, `credential.verify` — is not publicly documented or exported. A developer following the bounty brief cannot complete the primary deliverable without mocking these four methods.
+Core finding: `@terminal3/t3n-sdk` exists on npm and contains real, well-structured lower-level primitives. AgentVault originally built against `3.4.3`; it was rechecked and upgraded to `3.5.0` on 2026-06-05 after Terminal 3 refreshed the docs/package. The refreshed docs now document dashboard-level AI agent delegation with Agent DID, authorized TEE contract, allowed functions, allowed hosts, and removal. However, the high-level programmatic Agent Auth interface described in the bounty brief — `agent.create`, `credential.issue`, `credential.revoke`, `credential.verify` — is still not publicly documented or exported as a direct app API. A developer following the bounty brief cannot complete the primary deliverable without mocking these four methods.
 
 What we built in response: A typed adapter in `src/lib/t3-sdk.ts` that defines the exact interface these methods should implement, with W3C Verifiable Credential output and SHA-256 signed audit records. Every mock method is marked `// MOCK — replace when Terminal 3 ships this method` with the expected signature preserved. It is a drop-in replacement target requiring changes to one file when the real API ships.
 
@@ -42,9 +42,9 @@ Where encountered: `https://docs.terminal3.io/t3n/developer-guide/developer-over
 
 What I expected: The developer overview to show Agent Auth delegation examples covering agent identity creation, scoped credential issuance, revocation, and scope verification — the four operations the bounty challenge explicitly requires.
 
-What actually happened: The developer overview page states that SDK access is available but instructs developers to contact `enterprise@terminal3.io` to obtain it. For a public bounty challenge with a 3-day build window, routing SDK access through an enterprise sales contact is a critical blocker. The Agent Auth delegation API is not shown anywhere in the public documentation.
+What actually happened: The developer overview page states that SDK access is available but instructs developers to contact `enterprise@terminal3.io` to obtain it. For a public bounty challenge with a 3-day build window, routing SDK access through an enterprise sales contact is a critical blocker. The refreshed Data Owner guide now shows how a user can delegate to an AI agent through the dashboard by entering an Agent DID, selecting an authorized TEE contract, optional functions, and allowed hosts, then later removing access. That is useful product documentation, but it is not a programmatic SDK path for `agent.create`, `credential.issue`, `credential.verify`, or `credential.revoke`.
 
-How I worked around it: Proceeded via the npm package (`@terminal3/t3n-sdk@3.4.3`) and claim-page flow rather than waiting for enterprise contact. The agent identity and delegation methods were not available via this path either, but the package was installable. Wrapped the missing surface in a documented mock adapter.
+How I worked around it: Proceeded via the npm package (`@terminal3/t3n-sdk`, upgraded to `3.5.0`) and claim-page flow rather than waiting for enterprise contact. The agent identity and delegation methods were not available via this path either, but the package was installable. Wrapped the missing surface in a documented mock adapter.
 
 Severity: Critical — a developer following only the official documentation cannot complete the primary bounty deliverable without hitting this gate.
 
@@ -52,11 +52,11 @@ Severity: Critical — a developer following only the official documentation can
 
 Category: SDK Behaviour
 
-Where encountered: `@terminal3/t3n-sdk@3.4.3` package exports
+Where encountered: `@terminal3/t3n-sdk` package exports, rechecked on `3.5.0`
 
 What I expected: After installing the SDK, I inspected the exported surface looking for the `agent` namespace described in the bounty brief (`t3.agent.create`).
 
-What actually happened: The package exports `T3nClient`, WASM and session helpers, auth helpers, tenant clients, and delegation primitives. There is no `agent` namespace and no `agent.create` method. The top-level structure does not match the interface the bounty brief implies exists.
+What actually happened: The package exports `T3nClient`, WASM and session helpers, auth helpers, tenant clients, contract invocation helpers, and delegation primitives. Version `3.5.0` adds/keeps useful primitives including `DelegationCustodialClient`, `TenantClient`, `buildDelegationCredential`, `buildPayrollInvocation`, `revokeDelegation`, `signAgentInvocation`, and `validateCredentialBody`. There is still no `agent` namespace and no `agent.create` method. The top-level structure does not match the high-level interface the bounty brief implies exists.
 
 How I worked around it: Implemented `MockT3SDK.createAgent` in `src/lib/t3-sdk.ts` as a typed, replaceable adapter boundary with W3C Verifiable Credential output and a `did:t3n` DID format.
 
@@ -66,7 +66,7 @@ Severity: Major
 
 Category: SDK Behaviour
 
-Where encountered: `@terminal3/t3n-sdk@3.4.3` — searching for credential issuance
+Where encountered: `@terminal3/t3n-sdk` — searching for credential issuance, rechecked on `3.5.0`
 
 What I expected: The SDK to expose a `credential.issue` method (or equivalent) that accepts a delegator DID, a delegate DID, and a scope object, and returns a signed delegation credential.
 
@@ -80,7 +80,7 @@ Severity: Major
 
 Category: SDK Behaviour
 
-Where encountered: `@terminal3/t3n-sdk@3.4.3` — attempting credential revocation
+Where encountered: `@terminal3/t3n-sdk` — attempting credential revocation, rechecked on `3.5.0`
 
 What I expected: A `credential.revoke` method that accepts a credential ID and revocation reason, and returns a signed revocation proof usable in audit logs.
 
@@ -94,7 +94,7 @@ Severity: Major
 
 Category: SDK Behaviour
 
-Where encountered: `@terminal3/t3n-sdk@3.4.3` — pre-execution scope verification
+Where encountered: `@terminal3/t3n-sdk` — pre-execution scope verification, rechecked on `3.5.0`
 
 What I expected: A `credential.verify` method (or equivalent) that accepts a credential, a requested action string, and an optional value, then returns a boolean or structured result indicating whether the agent is authorised to proceed.
 
@@ -192,7 +192,7 @@ Severity: Minor
 
 Category: Documentation Gap — TypeScript Interface Gaps
 
-Where encountered: `node_modules/@terminal3/t3n-sdk/dist/index.d.ts`
+Where encountered: `node_modules/@terminal3/t3n-sdk/dist/index.d.ts`, rechecked on `3.5.0`
 
 What I expected: Dedicated TypeScript interfaces for the four Agent Auth data types the bounty scenario requires: agent identity credential, delegation credential, revocation proof, and scope verification result.
 
@@ -206,7 +206,7 @@ Severity: Major
 
 Category: Bundling Issue — Production Build Failure
 
-Where encountered: Next.js 14.2.35 production build after installing `@terminal3/t3n-sdk@3.4.3`
+Where encountered: Next.js 14.2.35 production build after installing `@terminal3/t3n-sdk` (`3.4.3`, rechecked after upgrading to `3.5.0`)
 
 What I expected: A server-side SDK import to compile cleanly in a standard Next.js App Router production build with no additional configuration.
 
@@ -232,7 +232,7 @@ Where encountered: The gap between the bounty brief, the claim page, and the act
 
 What I expected: The "Terminal 3 Agent Auth SDK" named in the bounty brief to map to a documented, stable, public API surface in `@terminal3/t3n-sdk` — one that a developer can discover, install, and use to complete the four core operations the challenge requires within a 3-day window.
 
-What actually happened: `@terminal3/t3n-sdk` is a real, well-structured package with meaningful lower-level primitives (`T3nClient`, session management, auth helpers, `buildDelegationCredential`, `revokeDelegation`). But the four Agent Auth methods the bounty brief implies exist (`agent.create`, `credential.issue`, `credential.revoke`, `credential.verify`) are not exported, not documented, and not accessible without an enterprise sales contact. The gap is not technical inability — the underlying infrastructure clearly supports these operations. The gap is that the high-level developer surface for them has not been published yet.
+What actually happened: `@terminal3/t3n-sdk` is a real, well-structured package with meaningful lower-level primitives (`T3nClient`, session management, auth helpers, `buildDelegationCredential`, `signAgentInvocation`, `revokeDelegation`, tenant/client helpers). The refreshed docs also make the product model clearer by documenting dashboard-level AI agent delegation. But the four Agent Auth methods the bounty brief implies exist (`agent.create`, `credential.issue`, `credential.revoke`, `credential.verify`) are not exported, not documented as a direct app API, and not accessible without an enterprise sales contact. The gap is not technical inability — the underlying infrastructure clearly supports these operations. The gap is that the high-level developer surface for them has not been published yet.
 
 The bounty challenge is, in effect, asking developers to build against an interface that does not yet exist publicly. That is either intentional (to see how developers design the interface themselves) or it is an oversight.
 

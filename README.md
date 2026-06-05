@@ -36,12 +36,16 @@ an append-only audit trail. One call revokes any agent instantly.
 ## Terminal 3 Agent Auth SDK
 
 AgentVault integrates Terminal 3's Agent Auth SDK via the public `@terminal3/t3n-sdk`
-package (v3.4.3) and the T3N testnet API key obtained through the Terminal 3 claim flow.
+package (v3.5.0) and the T3N testnet API key obtained through the Terminal 3 claim flow.
 
-The public SDK currently exposes low-level `T3nClient` handshake and authentication
-primitives. The enterprise Agent Auth scenario — `agent.create`, `credential.issue`,
-`credential.revoke` — requires a higher-level interface that the SDK does not yet expose
-publicly. Rather than blocking on this gap, AgentVault implements a clean adapter in
+The public SDK currently exposes lower-level `T3nClient`, tenant, contract invocation,
+delegation, and revocation primitives. Terminal 3's public docs now show the data-owner
+dashboard path for AI agent delegation, including Agent DID, authorized TEE contract,
+allowed functions, allowed hosts, and removal. The enterprise Agent Auth scenario in this
+submission still needs a higher-level programmatic interface — `agent.create`,
+`credential.issue`, `credential.revoke`, `credential.verify` — that the SDK does not yet
+expose publicly as a direct app API. Rather than blocking on this gap, AgentVault implements
+a clean adapter in
 `src/lib/t3-sdk.ts` that defines precisely the interface those methods should have,
 with W3C Verifiable Credential output, scoped delegation credentials, and SHA-256 signed
 audit records.
@@ -49,7 +53,8 @@ audit records.
 Every mock method is marked `// MOCK — replace when Terminal 3 ships this method` with
 the expected signature preserved. The adapter is a drop-in replacement target: when
 Terminal 3 exposes these methods, swapping in the real SDK requires changing only
-`src/lib/t3-sdk.ts`. All 15 SDK integration gaps are documented in `bugs.md`.
+`src/lib/t3-sdk.ts`. All 15 SDK integration gaps and the 2026-06-05 SDK/docs recheck are
+documented in `bugs.md`.
 
 The mock is not pretending to be production Terminal 3. It mirrors the expected interface, emits W3C-style credentials, creates scoped delegation credentials, and signs audit records with SHA-256 so the demo can prove the authorization model while the SDK gaps are documented in `bugs.md`.
 
@@ -146,13 +151,13 @@ written to the signed audit log.
 | Judging Criterion | AgentVault's Answer |
 |---|---|
 | **How big is the problem** | Every enterprise deploying AI agents needs least-privilege authorization. No production standard exists today. This is a foundational infrastructure gap across banking, government, healthcare, and corporate procurement — Terminal 3's named client segments. |
-| **How stable is the agent** | All 6 demo steps complete reliably. Scope violations throw hard errors, never silent failures. The Claude/Gemini reasoning step fails loudly if no model key is configured. `/api/demo/reset` enables repeatable demos without restarting the server. |
+| **How stable is the agent** | All 6 demo steps complete reliably with live Gemini reasoning when a valid key has available provider quota. Scope violations throw hard errors, never silent failures. Missing, invalid, or exhausted model credentials fail loudly instead of falling back to canned prose. `/api/demo/reset` enables repeatable demos without restarting the server. |
 | **How creative is the solution** | AgentVault treats the *agent itself* as the identity holder — a scoped, revocable, TEE-backed credential issued to a non-human actor. That is the primitive Terminal 3's enterprise clients actually need. |
 
 ## Known limitations
 
-- The public SDK/docs did not expose the exact high-level Agent Auth methods assumed by the bounty brief, so delegated credential issuance/revocation is mocked behind a replaceable adapter.
-- Live model reasoning requires `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, or `GOOGLE_API_KEY`. Missing or invalid model credentials block Step 1 instead of silently producing deterministic output.
+- The public SDK/docs do not expose the exact high-level programmatic Agent Auth methods assumed by the bounty brief, so delegated credential issuance/revocation is mocked behind a replaceable adapter. Terminal 3's docs do now document dashboard-level AI agent delegation and revocation.
+- Live model reasoning requires `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, or `GOOGLE_API_KEY` with available provider quota. Missing, invalid, or quota-exhausted model credentials block Step 1 instead of silently producing deterministic output.
 - Demo reset clears transient tasks and restores active demo delegations, but it does not delete audit records. No `/api/audit` update or delete route exists.
 - SQLite is local-only and intended for the submission demo, not shared enterprise deployment.
 
