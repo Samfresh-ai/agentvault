@@ -3,19 +3,22 @@ import { AIInferenceError, runAgentWithGemini } from "@/lib/agent-runner";
 import { jsonError, jsonOk } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
 import { ScopeViolationError, verifyScope } from "@/lib/scope-check";
+import { parseTaskExecutionRequest, taskValueFromPayload, TaskInputError } from "@/lib/task-validation";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as {
-      agentId?: string;
-      action?: string;
-      payload?: Record<string, unknown>;
-    };
+    let body: ReturnType<typeof parseTaskExecutionRequest>;
 
-    if (!body.agentId || !body.action || !body.payload) {
-      return jsonError("agentId, action, and payload are required", "INVALID_TASK_INPUT", 400);
+    try {
+      body = parseTaskExecutionRequest(await request.json());
+    } catch (error) {
+      if (error instanceof TaskInputError) {
+        return jsonError(error.message, error.code, error.status);
+      }
+
+      return jsonError("Request body must be valid JSON", "INVALID_JSON", 400);
     }
 
     const agent = await prisma.agent.findUnique({ where: { id: body.agentId } });
@@ -51,11 +54,16 @@ export async function POST(request: Request) {
     }
 
     try {
-      verifyScope(delegation, body.action, Number(body.payload.totalValue ?? 0));
+      const taskValue = taskValueFromPayload(body.action, body.payload);
+      verifyScope(delegation, body.action, taskValue);
     } catch (error) {
-      if (!(error instanceof ScopeViolationError)) {
+      if (!(error instanceof ScopeViolationError) && !(error instanceof TaskInputError)) {
         throw error;
       }
+
+      const reason = error instanceof ScopeViolationError ? error.violationType : error.code;
+      const detail = error instanceof ScopeViolationError ? error.detail : error.message;
+      const status = error instanceof ScopeViolationError ? 403 : error.status;
 
       await writeAuditLog({
         agent,
@@ -63,19 +71,20 @@ export async function POST(request: Request) {
         action: body.action,
         payload: body.payload,
         outcome: "REJECTED",
-        reason: error.violationType,
+        reason,
       });
 
       return Response.json(
         {
+          ...(error instanceof TaskInputError ? { error: error.message, code: error.code } : {}),
           outcome: "REJECTED",
-          reason: error.violationType,
-          detail: error.detail,
+          reason,
+          detail,
           agentId: agent.id,
           delegationId: delegation.id,
           timestamp: new Date().toISOString(),
         },
-        { status: 403 },
+        { status },
       );
     }
 

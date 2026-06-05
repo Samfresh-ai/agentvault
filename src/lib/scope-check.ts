@@ -1,5 +1,7 @@
 import type { Delegation } from "@prisma/client";
 
+const VALUE_REQUIRED_ACTIONS = new Set(["CHECK_BUDGET", "VERIFY_FUNDS", "GENERATE_PO"]);
+
 export class ScopeViolationError extends Error {
   public readonly violationType: string;
   public readonly detail: string;
@@ -9,6 +11,10 @@ export class ScopeViolationError extends Error {
     this.violationType = violationType;
     this.detail = detail;
   }
+}
+
+export function requiresTaskValue(action: string) {
+  return VALUE_REQUIRED_ACTIONS.has(action);
 }
 
 export function verifyScope(delegation: Delegation, action: string, value?: number): void {
@@ -31,6 +37,14 @@ export function verifyScope(delegation: Delegation, action: string, value?: numb
       "ACTION_NOT_PERMITTED",
       `Action "${action}" is not in this agent's credential scope. Allowed: ${allowedActions.join(", ")}`,
     );
+  }
+
+  if (requiresTaskValue(action) && value === undefined) {
+    throw new ScopeViolationError("INVALID_TASK_VALUE", `Action "${action}" requires a numeric totalValue`);
+  }
+
+  if (value !== undefined && (!Number.isFinite(value) || value < 0)) {
+    throw new ScopeViolationError("INVALID_TASK_VALUE", "Task value must be a finite, non-negative number");
   }
 
   if (value !== undefined && value > delegation.maxValue) {
