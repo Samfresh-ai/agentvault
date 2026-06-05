@@ -1,0 +1,98 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Agent {
+  id         String      @id @default(cuid())
+  name       String      @unique
+  role       AgentRole
+  t3DID      String      @unique
+  credential String
+  status     AgentStatus @default(ACTIVE)
+  createdAt  DateTime    @default(now())
+
+  issuedDelegations   Delegation[] @relation("Delegator")
+  receivedDelegations Delegation[] @relation("Delegate")
+  auditLogs           AuditLog[]
+  tasks               Task[]
+}
+
+model Delegation {
+  id             String           @id @default(cuid())
+  delegatorId    String
+  delegateId     String
+  allowedActions String
+  maxValue       Float
+  resources      String
+  expiresAt      DateTime
+  status         DelegationStatus @default(ACTIVE)
+  revokedAt      DateTime?
+  revokedReason  String?
+  credential     String
+  createdAt      DateTime         @default(now())
+
+  delegator Agent     @relation("Delegator", fields: [delegatorId], references: [id])
+  delegate  Agent     @relation("Delegate", fields: [delegateId], references: [id])
+  auditLogs AuditLog[]
+}
+
+model AuditLog {
+  id           String       @id @default(cuid())
+  agentId      String
+  delegationId String?
+  action       String
+  payload      String
+  outcome      AuditOutcome
+  reason       String?
+  signature    String
+  createdAt    DateTime     @default(now())
+
+  agent      Agent       @relation(fields: [agentId], references: [id])
+  delegation Delegation? @relation(fields: [delegationId], references: [id])
+}
+
+model Task {
+  id          String     @id @default(cuid())
+  agentId     String
+  description String
+  status      TaskStatus @default(PENDING)
+  result      String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  agent Agent @relation(fields: [agentId], references: [id])
+}
+
+enum AgentRole {
+  ORCHESTRATOR
+  SUB_AGENT
+}
+
+enum AgentStatus {
+  ACTIVE
+  REVOKED
+}
+
+enum DelegationStatus {
+  ACTIVE
+  REVOKED
+  EXPIRED
+}
+
+enum AuditOutcome {
+  SUCCESS
+  REJECTED
+  REVOKED
+}
+
+enum TaskStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  BLOCKED
+}
