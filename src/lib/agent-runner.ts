@@ -27,6 +27,9 @@ export interface AgentReasoning {
 
 const MODEL_RETRY_DELAYS_MS = [750, 1_500];
 const DEFAULT_OPENAI_TIMEOUT_MS = 60_000;
+const DEFAULT_LOCAL_LLM_BASE_URL = "http://127.0.0.1:11434/v1";
+const DEFAULT_LOCAL_LLM_MODEL = "llama3.1:8b";
+const DEFAULT_LOCAL_LLM_TIMEOUT_MS = 120_000;
 const DEFAULT_NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1";
 const DEFAULT_NVIDIA_MAX_TOKENS = 16_384;
 const DEFAULT_NVIDIA_TIMEOUT_MS = 120_000;
@@ -61,6 +64,10 @@ export async function runAgentWithModel(
     return runWithOpenAI(agentRole, action, payload);
   }
 
+  if (provider === "local" || provider === "ollama" || provider === "lmstudio") {
+    return runWithLocalLLM(agentRole, action, payload);
+  }
+
   if (provider === "nvidia") {
     return runWithNvidia(agentRole, action, payload);
   }
@@ -71,7 +78,7 @@ export async function runAgentWithModel(
 
   if (provider) {
     throw new AIInferenceError(
-      `Unsupported MODEL_PROVIDER "${provider}". Use anthropic, openai, nvidia, gemini, or leave it unset for auto.`,
+      `Unsupported MODEL_PROVIDER "${provider}". Use anthropic, openai, local, nvidia, gemini, or leave it unset for auto.`,
     );
   }
 
@@ -83,6 +90,10 @@ export async function runAgentWithModel(
     return runWithOpenAI(agentRole, action, payload);
   }
 
+  if (process.env.LOCAL_LLM_BASE_URL || process.env.LOCAL_LLM_MODEL) {
+    return runWithLocalLLM(agentRole, action, payload);
+  }
+
   if (process.env.NVIDIA_API_KEY || process.env.NVCF_RUN_KEY) {
     return runWithNvidia(agentRole, action, payload);
   }
@@ -92,7 +103,7 @@ export async function runAgentWithModel(
   }
 
   throw new AIInferenceError(
-    "No live model key configured. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, NVIDIA_API_KEY, GEMINI_API_KEY, or GOOGLE_API_KEY.",
+    "No live model configured. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, NVIDIA_API_KEY, GEMINI_API_KEY, GOOGLE_API_KEY, or LOCAL_LLM_BASE_URL.",
   );
 }
 
@@ -170,6 +181,53 @@ async function runWithOpenAI(
   }
 
   throw new AIInferenceError("OpenAI inference failed");
+}
+
+async function runWithLocalLLM(
+  agentRole: AgentRunnerRole,
+  action: string,
+  payload: Record<string, unknown>,
+): Promise<AgentReasoning> {
+  const baseUrl = (process.env.LOCAL_LLM_BASE_URL || DEFAULT_LOCAL_LLM_BASE_URL).replace(/\/+$/, "");
+  const model = process.env.LOCAL_LLM_MODEL || DEFAULT_LOCAL_LLM_MODEL;
+  const timeoutMs = Number(process.env.LOCAL_LLM_TIMEOUT_MS || DEFAULT_LOCAL_LLM_TIMEOUT_MS);
+  const client = new OpenAI({
+    apiKey: process.env.LOCAL_LLM_API_KEY || "local-llm",
+    baseURL: baseUrl,
+    timeout: timeoutMs,
+  });
+
+  for (let attempt = 0; attempt <= MODEL_RETRY_DELAYS_MS.length; attempt += 1) {
+    try {
+      const completion = await client.chat.completions.create(
+        {
+          model,
+          messages: [
+            { role: "system", content: AGENT_PROMPTS[agentRole] },
+            { role: "user", content: reasoningPrompt(action, payload) },
+          ],
+          temperature: 0.2,
+        },
+        { timeout: timeoutMs },
+      );
+
+      return parseReasoning(completion.choices[0]?.message?.content ?? "", `local:${model}`);
+    } catch (error) {
+      if (error instanceof AIInferenceError) {
+        throw error;
+      }
+
+      const canRetry = attempt < MODEL_RETRY_DELAYS_MS.length && isTransientModelError(error);
+      if (canRetry) {
+        await sleep(MODEL_RETRY_DELAYS_MS[attempt]);
+        continue;
+      }
+
+      throw new AIInferenceError(errorMessage(error, "Local LLM inference failed"));
+    }
+  }
+
+  throw new AIInferenceError("Local LLM inference failed");
 }
 
 async function runWithGemini(

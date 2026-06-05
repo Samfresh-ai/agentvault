@@ -77,13 +77,17 @@ T3N_API_KEY="..."
 T3_NETWORK="testnet"
 NEXT_PUBLIC_APP_NAME="AgentVault"
 NEXT_PUBLIC_T3_NETWORK="Terminal 3 Testnet"
-# Use one live model provider. Anthropic is preferred when multiple are set.
+# Use one live model provider, or leave MODEL_PROVIDER unset for automatic order.
 MODEL_PROVIDER="openai"
 ANTHROPIC_API_KEY=""
 ANTHROPIC_MODEL="claude-sonnet-4-5"
 OPENAI_API_KEY=""
 OPENAI_MODEL="gpt-5"
 OPENAI_TIMEOUT_MS="60000"
+LOCAL_LLM_BASE_URL="http://127.0.0.1:11434/v1"
+LOCAL_LLM_MODEL="llama3.1:8b"
+LOCAL_LLM_TIMEOUT_MS="120000"
+# LOCAL_LLM_API_KEY is optional for local OpenAI-compatible servers.
 NVIDIA_API_KEY=""
 NVIDIA_BASE_URL="https://integrate.api.nvidia.com/v1"
 NVIDIA_MODEL="z-ai/glm-5.1"
@@ -94,7 +98,7 @@ GEMINI_API_KEY=""
 GEMINI_MODEL="gemini-2.5-flash"
 ```
 
-`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `NVIDIA_API_KEY`, `GEMINI_API_KEY`, or `GOOGLE_API_KEY` is required for live model reasoning. `MODEL_PROVIDER` can force `anthropic`, `openai`, `nvidia`, or `gemini`; leave it unset for automatic order. AgentVault intentionally fails the reasoning step when no live model key is configured; it does not fall back to canned agent prose. When multiple providers are configured without `MODEL_PROVIDER`, AgentVault tries Anthropic first, then OpenAI, then NVIDIA, then Gemini/Google.
+`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `NVIDIA_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, or a local OpenAI-compatible server is required for live model reasoning. `MODEL_PROVIDER` can force `anthropic`, `openai`, `local`, `nvidia`, or `gemini`; leave it unset for automatic order. For local models, set `MODEL_PROVIDER="local"` and point `LOCAL_LLM_BASE_URL` at an OpenAI-compatible endpoint such as Ollama's `http://127.0.0.1:11434/v1` or LM Studio's `http://127.0.0.1:1234/v1`. AgentVault intentionally fails the reasoning step when no live model is configured; it does not fall back to canned agent prose. When multiple providers are configured without `MODEL_PROVIDER`, AgentVault tries Anthropic first, then OpenAI, then a configured local server, then NVIDIA, then Gemini/Google.
 
 Useful verification commands:
 
