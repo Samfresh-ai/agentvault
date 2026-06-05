@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { GoogleGenAI } from "@google/genai";
+import OpenAI from "openai";
 
 export type AgentRunnerRole = "ORCHESTRATOR" | "BUDGET_AGENT" | "VENDOR_AGENT";
 
@@ -26,6 +27,7 @@ export interface AgentReasoning {
 
 const MODEL_RETRY_DELAYS_MS = [750, 1_500];
 const DEFAULT_NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1";
+const DEFAULT_NVIDIA_MAX_TOKENS = 16_384;
 const DEFAULT_NVIDIA_TIMEOUT_MS = 120_000;
 
 export class AIInferenceError extends Error {
@@ -48,6 +50,26 @@ export async function runAgentWithModel(
   action: string,
   payload: Record<string, unknown>,
 ): Promise<AgentReasoning> {
+  const provider = process.env.MODEL_PROVIDER?.toLowerCase();
+
+  if (provider === "anthropic") {
+    return runWithAnthropic(agentRole, action, payload);
+  }
+
+  if (provider === "nvidia") {
+    return runWithNvidia(agentRole, action, payload);
+  }
+
+  if (provider === "gemini" || provider === "google") {
+    return runWithGemini(agentRole, action, payload);
+  }
+
+  if (provider) {
+    throw new AIInferenceError(
+      `Unsupported MODEL_PROVIDER "${provider}". Use anthropic, nvidia, gemini, or leave it unset for auto.`,
+    );
+  }
+
   if (process.env.ANTHROPIC_API_KEY) {
     return runWithAnthropic(agentRole, action, payload);
   }
@@ -147,38 +169,36 @@ async function runWithNvidia(
 
   const baseUrl = (process.env.NVIDIA_BASE_URL || DEFAULT_NVIDIA_BASE_URL).replace(/\/+$/, "");
   const model = process.env.NVIDIA_MODEL || "z-ai/glm-5.1";
-  const maxTokens = Number(process.env.NVIDIA_MAX_TOKENS || "512");
+  const maxTokens = Number(process.env.NVIDIA_MAX_TOKENS || DEFAULT_NVIDIA_MAX_TOKENS);
   const timeoutMs = Number(process.env.NVIDIA_TIMEOUT_MS || DEFAULT_NVIDIA_TIMEOUT_MS);
+  const client = new OpenAI({
+    apiKey,
+    baseURL: baseUrl,
+    timeout: timeoutMs,
+  });
 
   for (let attempt = 0; attempt <= MODEL_RETRY_DELAYS_MS.length; attempt += 1) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
-      const response = await fetch(`${baseUrl}/chat/completions`, {
-        method: "POST",
-        signal: controller.signal,
-        headers: {
-          authorization: `Bearer ${apiKey}`,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
+      const stream = await client.chat.completions.create(
+        {
           model,
           messages: [{ role: "user", content: nvidiaReasoningPrompt(agentRole, action, payload) }],
           temperature: 1,
           top_p: 1,
           max_tokens: maxTokens,
           stream: true,
-        }),
-      });
+        },
+        { signal: controller.signal },
+      );
 
-      if (!response.ok) {
-        const body = await response.text().catch(() => "");
-        const detail = body ? `: ${body.slice(0, 500)}` : "";
-        throw new Error(`NVIDIA inference failed (${response.status})${detail}`);
+      let text = "";
+      for await (const chunk of stream) {
+        text += chunk.choices?.[0]?.delta?.content ?? "";
       }
 
-      const text = await readNvidiaStream(response);
       return parseReasoning(text, `nvidia:${model}`);
     } catch (error) {
       if (error instanceof AIInferenceError) {
@@ -198,47 +218,6 @@ async function runWithNvidia(
   }
 
   throw new AIInferenceError("NVIDIA inference failed");
-}
-
-async function readNvidiaStream(response: Response) {
-  if (!response.body) {
-    throw new AIInferenceError("NVIDIA inference response did not include a stream body");
-  }
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let pending = "";
-  let content = "";
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) {
-      break;
-    }
-
-    pending += decoder.decode(value, { stream: true });
-    const lines = pending.split(/\r?\n/);
-    pending = lines.pop() ?? "";
-
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed.startsWith("data:")) {
-        continue;
-      }
-
-      const data = trimmed.slice("data:".length).trim();
-      if (!data || data === "[DONE]") {
-        continue;
-      }
-
-      const parsed = JSON.parse(data) as {
-        choices?: Array<{ delta?: { content?: string | null }; message?: { content?: string | null } }>;
-      };
-      content += parsed.choices?.[0]?.delta?.content ?? parsed.choices?.[0]?.message?.content ?? "";
-    }
-  }
-
-  return content.trim();
 }
 
 function nvidiaReasoningPrompt(agentRole: AgentRunnerRole, action: string, payload: Record<string, unknown>) {
