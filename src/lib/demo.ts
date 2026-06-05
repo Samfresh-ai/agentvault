@@ -2,7 +2,7 @@ import type { Agent, Delegation } from "@prisma/client";
 import { writeAuditLog } from "@/lib/audit";
 import { AIInferenceError, runAgentWithGemini } from "@/lib/agent-runner";
 import { prisma } from "@/lib/prisma";
-import { verifyScope, ScopeViolationError } from "@/lib/scope-check";
+import { verifyDelegationAccess, verifyDelegationValue, ScopeViolationError } from "@/lib/scope-check";
 import { ensureDemoSeed, restoreDemoDelegations } from "@/lib/seed";
 import { t3 } from "@/lib/t3-sdk";
 import { taskValueFromPayload, TaskInputError } from "@/lib/task-validation";
@@ -160,7 +160,9 @@ async function executeSubAgentTask(step: number, agent: Agent, action: string, p
   }
 
   try {
-    verifyScope(delegation, action, taskValueFromPayload(action, payload));
+    verifyDelegationAccess(delegation, action);
+    const taskValue = taskValueFromPayload(action, payload);
+    verifyDelegationValue(delegation, action, taskValue);
     const role = agent.name === "BudgetAgent" ? "BUDGET_AGENT" : "VENDOR_AGENT";
     const reasoning = await runAgentWithGemini(role, action, payload);
 

@@ -1,4 +1,4 @@
-import { requiresTaskValue } from "@/lib/scope-check";
+import { ScopeViolationError, validateTaskValueForAction } from "@/lib/scope-check";
 
 export interface TaskExecutionRequest {
   agentId: string;
@@ -43,19 +43,13 @@ export function parseTaskExecutionRequest(value: unknown): TaskExecutionRequest 
 }
 
 export function taskValueFromPayload(action: string, payload: Record<string, unknown>): number | undefined {
-  const rawValue = payload.totalValue;
-
-  if (rawValue === undefined) {
-    if (requiresTaskValue(action)) {
-      throw new TaskInputError(`Action "${action}" requires payload.totalValue`, "INVALID_TASK_VALUE");
+  try {
+    return validateTaskValueForAction(action, payload);
+  } catch (error) {
+    if (error instanceof ScopeViolationError && error.violationType === "INVALID_TASK_VALUE") {
+      throw new TaskInputError(error.detail, "INVALID_TASK_VALUE");
     }
 
-    return undefined;
+    throw error;
   }
-
-  if (typeof rawValue !== "number" || !Number.isFinite(rawValue) || rawValue < 0) {
-    throw new TaskInputError("payload.totalValue must be a finite, non-negative JSON number", "INVALID_TASK_VALUE");
-  }
-
-  return rawValue;
 }

@@ -2,7 +2,7 @@ import { writeAuditLog } from "@/lib/audit";
 import { AIInferenceError, runAgentWithGemini } from "@/lib/agent-runner";
 import { jsonError, jsonOk } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
-import { ScopeViolationError, verifyScope } from "@/lib/scope-check";
+import { ScopeViolationError, verifyDelegationAccess, verifyDelegationValue } from "@/lib/scope-check";
 import { parseTaskExecutionRequest, taskValueFromPayload, TaskInputError } from "@/lib/task-validation";
 
 export const dynamic = "force-dynamic";
@@ -54,8 +54,9 @@ export async function POST(request: Request) {
     }
 
     try {
+      verifyDelegationAccess(delegation, body.action);
       const taskValue = taskValueFromPayload(body.action, body.payload);
-      verifyScope(delegation, body.action, taskValue);
+      verifyDelegationValue(delegation, body.action, taskValue);
     } catch (error) {
       if (!(error instanceof ScopeViolationError) && !(error instanceof TaskInputError)) {
         throw error;

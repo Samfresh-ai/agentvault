@@ -1,3 +1,8 @@
+import { PrismaClient } from "@prisma/client";
+
+process.env.DATABASE_URL ??= "file:./dev.db";
+
+const prisma = new PrismaClient();
 const baseUrl = process.env.AGENTVAULT_BASE_URL ?? "http://127.0.0.1:3000";
 
 async function json(path, init = {}) {
@@ -72,6 +77,16 @@ const wrongRole = await json("/api/tasks/execute", {
 });
 expectRejection(wrongRole, "ACTION_NOT_PERMITTED", "BudgetAgent GENERATE_PO");
 
+const wrongRoleMalformed = await json("/api/tasks/execute", {
+  method: "POST",
+  body: JSON.stringify({
+    agentId: budget.id,
+    action: "GENERATE_PO",
+    payload: { vendor: "Dell Technologies", totalValue: "60000 USD" },
+  }),
+});
+expectRejection(wrongRoleMalformed, "ACTION_NOT_PERMITTED", "BudgetAgent malformed GENERATE_PO");
+
 const overCap = await json("/api/tasks/execute", {
   method: "POST",
   body: JSON.stringify({
@@ -81,6 +96,29 @@ const overCap = await json("/api/tasks/execute", {
   }),
 });
 expectRejection(overCap, "VALUE_EXCEEDS_SCOPE", "VendorAgent over-cap GENERATE_PO");
+
+await prisma.delegation.update({
+  where: { id: vendorDelegation.id },
+  data: {
+    status: "ACTIVE",
+    revokedAt: null,
+    revokedReason: null,
+    expiresAt: new Date(Date.now() - 60_000),
+  },
+});
+
+const expiredMalformed = await json("/api/tasks/execute", {
+  method: "POST",
+  body: JSON.stringify({
+    agentId: vendor.id,
+    action: "GENERATE_PO",
+    payload: { vendor: "Dell Technologies", totalValue: "60000 USD" },
+  }),
+});
+expectRejection(expiredMalformed, "CREDENTIAL_EXPIRED", "VendorAgent expired malformed GENERATE_PO");
+
+const resetAfterExpiry = await json("/api/demo/reset", { method: "POST" });
+assert(resetAfterExpiry.response.ok, "demo reset after expiry regression failed");
 
 const malformedValue = await json("/api/tasks/execute", {
   method: "POST",
@@ -117,11 +155,11 @@ const afterRevoke = await json("/api/tasks/execute", {
   method: "POST",
   body: JSON.stringify({
     agentId: vendor.id,
-    action: "CONTACT_APPROVED_VENDORS",
-    payload: { vendor: "Dell Technologies", message: "Confirm shipment", totalValue: 0 },
+    action: "GENERATE_PO",
+    payload: { vendor: "Dell Technologies", totalValue: "60000 USD" },
   }),
 });
-expectRejection(afterRevoke, "CREDENTIAL_REVOKED", "VendorAgent post-revocation action");
+expectRejection(afterRevoke, "CREDENTIAL_REVOKED", "VendorAgent post-revocation malformed GENERATE_PO");
 
 const auditBeforeReset = await json("/api/audit/logs?limit=100");
 assert(auditBeforeReset.response.ok, "audit fetch before reset failed");
@@ -141,6 +179,8 @@ const reasons = new Set((auditAfterReset.body.logs ?? []).map((log) => log.reaso
 assert(reasons.has("ACTION_NOT_PERMITTED"), "audit logs missing ACTION_NOT_PERMITTED rejection");
 assert(reasons.has("VALUE_EXCEEDS_SCOPE"), "audit logs missing VALUE_EXCEEDS_SCOPE rejection");
 assert(reasons.has("CREDENTIAL_REVOKED"), "audit logs missing CREDENTIAL_REVOKED rejection");
+assert(reasons.has("CREDENTIAL_EXPIRED"), "audit logs missing CREDENTIAL_EXPIRED rejection");
 assert(reasons.has("INVALID_TASK_VALUE"), "audit logs missing INVALID_TASK_VALUE rejection");
 
+await prisma.$disconnect();
 console.log("security smoke passed");

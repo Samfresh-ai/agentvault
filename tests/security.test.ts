@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import type { Delegation } from "@prisma/client";
-import { ScopeViolationError, verifyScope } from "../src/lib/scope-check";
+import {
+  ScopeViolationError,
+  verifyDelegationAccess,
+  verifyDelegationValue,
+  verifyScope,
+} from "../src/lib/scope-check";
 import {
   parseTaskExecutionRequest,
   taskValueFromPayload,
@@ -39,6 +44,16 @@ function expectTaskInputError(code: string, fn: () => void) {
     (error) => error instanceof TaskInputError && error.code === code,
     `expected TaskInputError ${code}`,
   );
+}
+
+function verifyTaskExecution(
+  testDelegation: Delegation,
+  action: string,
+  payload: Record<string, unknown>,
+) {
+  verifyDelegationAccess(testDelegation, action);
+  const taskValue = taskValueFromPayload(action, payload);
+  verifyDelegationValue(testDelegation, action, taskValue);
 }
 
 verifyScope(delegation(), "GENERATE_PO", 45000);
@@ -83,6 +98,38 @@ expectTaskInputError("INVALID_TASK_VALUE", () => taskValueFromPayload("GENERATE_
 expectTaskInputError("INVALID_TASK_INPUT", () => parseTaskExecutionRequest({ agentId: "agent-1" }));
 expectTaskInputError("INVALID_TASK_INPUT", () =>
   parseTaskExecutionRequest({ agentId: "agent-1", action: "GENERATE_PO", payload: [] }),
+);
+
+expectScopeError("CREDENTIAL_REVOKED", () =>
+  verifyTaskExecution(
+    delegation({
+      status: "REVOKED",
+      revokedAt: new Date("2026-06-05T00:00:00Z"),
+      revokedReason: "test",
+    }),
+    "GENERATE_PO",
+    { totalValue: "60000 USD" },
+  ),
+);
+
+expectScopeError("CREDENTIAL_EXPIRED", () =>
+  verifyTaskExecution(
+    delegation({ expiresAt: new Date(Date.now() - 1000) }),
+    "GENERATE_PO",
+    { totalValue: "60000 USD" },
+  ),
+);
+
+expectScopeError("ACTION_NOT_PERMITTED", () =>
+  verifyTaskExecution(delegation(), "CHECK_BUDGET", { totalValue: "60000 USD" }),
+);
+
+expectTaskInputError("INVALID_TASK_VALUE", () =>
+  verifyTaskExecution(delegation(), "GENERATE_PO", { totalValue: "60000 USD" }),
+);
+
+expectScopeError("VALUE_EXCEEDS_SCOPE", () =>
+  verifyTaskExecution(delegation(), "GENERATE_PO", { totalValue: 60000 }),
 );
 
 console.log("security unit tests passed");

@@ -4,6 +4,8 @@ Submission: Prize 2 — Most Detailed Developer Bug Report
 
 Project: AgentVault | Repo: github.com/Samfresh-ai/agentvault
 
+Bug report file: https://github.com/Samfresh-ai/agentvault/blob/main/bugs.md
+
 ## Executive Summary
 
 15 friction points documented across SDK behaviour, documentation gaps, onboarding confusion, API surface issues, and a critical production bundling failure.
