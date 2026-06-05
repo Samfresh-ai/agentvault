@@ -77,10 +77,13 @@ T3N_API_KEY="..."
 T3_NETWORK="testnet"
 NEXT_PUBLIC_APP_NAME="AgentVault"
 NEXT_PUBLIC_T3_NETWORK="Terminal 3 Testnet"
-# Use one live model provider. Anthropic is preferred when both are set.
-MODEL_PROVIDER="gemini"
+# Use one live model provider. Anthropic is preferred when multiple are set.
+MODEL_PROVIDER="openai"
 ANTHROPIC_API_KEY=""
 ANTHROPIC_MODEL="claude-sonnet-4-5"
+OPENAI_API_KEY=""
+OPENAI_MODEL="gpt-5"
+OPENAI_TIMEOUT_MS="60000"
 NVIDIA_API_KEY=""
 NVIDIA_BASE_URL="https://integrate.api.nvidia.com/v1"
 NVIDIA_MODEL="z-ai/glm-5.1"
@@ -91,7 +94,7 @@ GEMINI_API_KEY=""
 GEMINI_MODEL="gemini-2.5-flash"
 ```
 
-`ANTHROPIC_API_KEY`, `NVIDIA_API_KEY`, `GEMINI_API_KEY`, or `GOOGLE_API_KEY` is required for live model reasoning. `MODEL_PROVIDER` can force `anthropic`, `nvidia`, or `gemini`; leave it unset for automatic order. AgentVault intentionally fails the reasoning step when no live model key is configured; it does not fall back to canned agent prose. When multiple providers are configured without `MODEL_PROVIDER`, AgentVault tries Anthropic first, then NVIDIA, then Gemini/Google.
+`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `NVIDIA_API_KEY`, `GEMINI_API_KEY`, or `GOOGLE_API_KEY` is required for live model reasoning. `MODEL_PROVIDER` can force `anthropic`, `openai`, `nvidia`, or `gemini`; leave it unset for automatic order. AgentVault intentionally fails the reasoning step when no live model key is configured; it does not fall back to canned agent prose. When multiple providers are configured without `MODEL_PROVIDER`, AgentVault tries Anthropic first, then OpenAI, then NVIDIA, then Gemini/Google.
 
 Useful verification commands:
 

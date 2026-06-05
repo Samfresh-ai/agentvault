@@ -26,6 +26,7 @@ export interface AgentReasoning {
 }
 
 const MODEL_RETRY_DELAYS_MS = [750, 1_500];
+const DEFAULT_OPENAI_TIMEOUT_MS = 60_000;
 const DEFAULT_NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1";
 const DEFAULT_NVIDIA_MAX_TOKENS = 16_384;
 const DEFAULT_NVIDIA_TIMEOUT_MS = 120_000;
@@ -56,6 +57,10 @@ export async function runAgentWithModel(
     return runWithAnthropic(agentRole, action, payload);
   }
 
+  if (provider === "openai") {
+    return runWithOpenAI(agentRole, action, payload);
+  }
+
   if (provider === "nvidia") {
     return runWithNvidia(agentRole, action, payload);
   }
@@ -66,12 +71,16 @@ export async function runAgentWithModel(
 
   if (provider) {
     throw new AIInferenceError(
-      `Unsupported MODEL_PROVIDER "${provider}". Use anthropic, nvidia, gemini, or leave it unset for auto.`,
+      `Unsupported MODEL_PROVIDER "${provider}". Use anthropic, openai, nvidia, gemini, or leave it unset for auto.`,
     );
   }
 
   if (process.env.ANTHROPIC_API_KEY) {
     return runWithAnthropic(agentRole, action, payload);
+  }
+
+  if (process.env.OPENAI_API_KEY) {
+    return runWithOpenAI(agentRole, action, payload);
   }
 
   if (process.env.NVIDIA_API_KEY || process.env.NVCF_RUN_KEY) {
@@ -83,7 +92,7 @@ export async function runAgentWithModel(
   }
 
   throw new AIInferenceError(
-    "No live model key configured. Set ANTHROPIC_API_KEY, NVIDIA_API_KEY, GEMINI_API_KEY, or GOOGLE_API_KEY.",
+    "No live model key configured. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, NVIDIA_API_KEY, GEMINI_API_KEY, or GOOGLE_API_KEY.",
   );
 }
 
@@ -113,6 +122,54 @@ async function runWithAnthropic(
   } catch (error) {
     throw new AIInferenceError(error instanceof Error ? error.message : "Anthropic inference failed");
   }
+}
+
+async function runWithOpenAI(
+  agentRole: AgentRunnerRole,
+  action: string,
+  payload: Record<string, unknown>,
+): Promise<AgentReasoning> {
+  if (!process.env.OPENAI_API_KEY) {
+    throw new AIInferenceError("OpenAI API key is not configured");
+  }
+
+  const model = process.env.OPENAI_MODEL || "gpt-5";
+  const timeoutMs = Number(process.env.OPENAI_TIMEOUT_MS || DEFAULT_OPENAI_TIMEOUT_MS);
+  const client = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+    timeout: timeoutMs,
+  });
+
+  for (let attempt = 0; attempt <= MODEL_RETRY_DELAYS_MS.length; attempt += 1) {
+    try {
+      const completion = await client.chat.completions.create(
+        {
+          model,
+          messages: [
+            { role: "system", content: AGENT_PROMPTS[agentRole] },
+            { role: "user", content: reasoningPrompt(action, payload) },
+          ],
+        },
+        { timeout: timeoutMs },
+      );
+
+      return parseReasoning(completion.choices[0]?.message?.content ?? "", `openai:${model}`);
+    } catch (error) {
+      if (error instanceof AIInferenceError) {
+        throw error;
+      }
+
+      const canRetry = attempt < MODEL_RETRY_DELAYS_MS.length && isTransientModelError(error);
+      if (canRetry) {
+        await sleep(MODEL_RETRY_DELAYS_MS[attempt]);
+        continue;
+      }
+
+      throw new AIInferenceError(errorMessage(error, "OpenAI inference failed"));
+    }
+  }
+
+  throw new AIInferenceError("OpenAI inference failed");
 }
 
 async function runWithGemini(
