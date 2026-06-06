@@ -1,4 +1,9 @@
 import assert from "node:assert/strict";
+import {
+  AIInferenceError,
+  MAX_MODEL_OUTPUT_TOKENS,
+  modelOutputTokenLimitFromEnv,
+} from "../src/lib/agent-runner";
 import type { Delegation } from "@prisma/client";
 import {
   ScopeViolationError,
@@ -131,5 +136,23 @@ expectTaskInputError("INVALID_TASK_VALUE", () =>
 expectScopeError("VALUE_EXCEEDS_SCOPE", () =>
   verifyTaskExecution(delegation(), "GENERATE_PO", { totalValue: 60000 }),
 );
+
+const originalTokenEnv = process.env.SECURITY_TEST_MAX_TOKENS;
+delete process.env.SECURITY_TEST_MAX_TOKENS;
+assert.equal(modelOutputTokenLimitFromEnv("SECURITY_TEST_MAX_TOKENS"), 900);
+process.env.SECURITY_TEST_MAX_TOKENS = "512";
+assert.equal(modelOutputTokenLimitFromEnv("SECURITY_TEST_MAX_TOKENS"), 512);
+process.env.SECURITY_TEST_MAX_TOKENS = "16384";
+assert.equal(modelOutputTokenLimitFromEnv("SECURITY_TEST_MAX_TOKENS"), MAX_MODEL_OUTPUT_TOKENS);
+process.env.SECURITY_TEST_MAX_TOKENS = "not-a-number";
+assert.throws(
+  () => modelOutputTokenLimitFromEnv("SECURITY_TEST_MAX_TOKENS"),
+  (error) => error instanceof AIInferenceError && error.message.includes("positive integer"),
+);
+if (originalTokenEnv === undefined) {
+  delete process.env.SECURITY_TEST_MAX_TOKENS;
+} else {
+  process.env.SECURITY_TEST_MAX_TOKENS = originalTokenEnv;
+}
 
 console.log("security unit tests passed");

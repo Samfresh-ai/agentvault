@@ -26,12 +26,14 @@ export interface AgentReasoning {
 }
 
 const MODEL_RETRY_DELAYS_MS = [750, 1_500];
+const DEFAULT_MODEL_OUTPUT_TOKENS = 900;
+export const MAX_MODEL_OUTPUT_TOKENS = 2_048;
 const DEFAULT_OPENAI_TIMEOUT_MS = 60_000;
 const DEFAULT_LOCAL_LLM_BASE_URL = "http://127.0.0.1:11434/v1";
 const DEFAULT_LOCAL_LLM_MODEL = "llama3.1:8b";
 const DEFAULT_LOCAL_LLM_TIMEOUT_MS = 120_000;
 const DEFAULT_NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1";
-const DEFAULT_NVIDIA_MAX_TOKENS = 16_384;
+const DEFAULT_NVIDIA_MAX_TOKENS = DEFAULT_MODEL_OUTPUT_TOKENS;
 const DEFAULT_NVIDIA_TIMEOUT_MS = 120_000;
 
 export class AIInferenceError extends Error {
@@ -107,6 +109,20 @@ export async function runAgentWithModel(
   );
 }
 
+export function modelOutputTokenLimitFromEnv(name: string, defaultValue = DEFAULT_MODEL_OUTPUT_TOKENS) {
+  const configured = process.env[name];
+  if (configured === undefined || configured.trim() === "") {
+    return defaultValue;
+  }
+
+  const parsed = Number(configured);
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    throw new AIInferenceError(`${name} must be a positive integer`);
+  }
+
+  return Math.min(parsed, MAX_MODEL_OUTPUT_TOKENS);
+}
+
 async function runWithAnthropic(
   agentRole: AgentRunnerRole,
   action: string,
@@ -146,6 +162,7 @@ async function runWithOpenAI(
 
   const model = process.env.OPENAI_MODEL || "gpt-5";
   const timeoutMs = Number(process.env.OPENAI_TIMEOUT_MS || DEFAULT_OPENAI_TIMEOUT_MS);
+  const maxCompletionTokens = modelOutputTokenLimitFromEnv("OPENAI_MAX_COMPLETION_TOKENS");
   const client = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
     timeout: timeoutMs,
@@ -160,6 +177,7 @@ async function runWithOpenAI(
             { role: "system", content: AGENT_PROMPTS[agentRole] },
             { role: "user", content: reasoningPrompt(action, payload) },
           ],
+          max_completion_tokens: maxCompletionTokens,
         },
         { timeout: timeoutMs },
       );
@@ -191,6 +209,7 @@ async function runWithLocalLLM(
   const baseUrl = (process.env.LOCAL_LLM_BASE_URL || DEFAULT_LOCAL_LLM_BASE_URL).replace(/\/+$/, "");
   const model = process.env.LOCAL_LLM_MODEL || DEFAULT_LOCAL_LLM_MODEL;
   const timeoutMs = Number(process.env.LOCAL_LLM_TIMEOUT_MS || DEFAULT_LOCAL_LLM_TIMEOUT_MS);
+  const maxTokens = modelOutputTokenLimitFromEnv("LOCAL_LLM_MAX_TOKENS");
   const client = new OpenAI({
     apiKey: process.env.LOCAL_LLM_API_KEY || "local-llm",
     baseURL: baseUrl,
@@ -207,6 +226,7 @@ async function runWithLocalLLM(
             { role: "user", content: reasoningPrompt(action, payload) },
           ],
           temperature: 0.2,
+          max_tokens: maxTokens,
         },
         { timeout: timeoutMs },
       );
@@ -241,6 +261,7 @@ async function runWithGemini(
   }
 
   const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+  const maxOutputTokens = modelOutputTokenLimitFromEnv("GEMINI_MAX_OUTPUT_TOKENS");
   const ai = new GoogleGenAI({ apiKey });
   const contents = `${AGENT_PROMPTS[agentRole]}
 
@@ -251,6 +272,9 @@ ${reasoningPrompt(action, payload)}`;
       const response = await ai.models.generateContent({
         model,
         contents,
+        config: {
+          maxOutputTokens,
+        },
       });
 
       return parseReasoning(response.text ?? "", `google:${model}`);
@@ -284,7 +308,7 @@ async function runWithNvidia(
 
   const baseUrl = (process.env.NVIDIA_BASE_URL || DEFAULT_NVIDIA_BASE_URL).replace(/\/+$/, "");
   const model = process.env.NVIDIA_MODEL || "z-ai/glm-5.1";
-  const maxTokens = Number(process.env.NVIDIA_MAX_TOKENS || DEFAULT_NVIDIA_MAX_TOKENS);
+  const maxTokens = modelOutputTokenLimitFromEnv("NVIDIA_MAX_TOKENS", DEFAULT_NVIDIA_MAX_TOKENS);
   const timeoutMs = Number(process.env.NVIDIA_TIMEOUT_MS || DEFAULT_NVIDIA_TIMEOUT_MS);
   const client = new OpenAI({
     apiKey,
@@ -389,11 +413,8 @@ function parseReasoning(text: string, model: string): AgentReasoning {
 function isTransientModelError(error: unknown) {
   const message = errorMessage(error, "");
   return (
-    message.includes('"code":429') ||
     message.includes('"code":503') ||
-    message.includes('"status":"RESOURCE_EXHAUSTED"') ||
     message.includes('"status":"UNAVAILABLE"') ||
-    message.includes("429") ||
     message.includes("503")
   );
 }
