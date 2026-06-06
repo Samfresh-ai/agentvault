@@ -83,22 +83,26 @@ ANTHROPIC_API_KEY=""
 ANTHROPIC_MODEL="claude-sonnet-4-5"
 OPENAI_API_KEY=""
 OPENAI_MODEL="gpt-5"
+OPENAI_MAX_COMPLETION_TOKENS="900"
 OPENAI_TIMEOUT_MS="60000"
 LOCAL_LLM_BASE_URL="http://127.0.0.1:11434/v1"
 LOCAL_LLM_MODEL="llama3.1:8b"
+LOCAL_LLM_MAX_TOKENS="900"
 LOCAL_LLM_TIMEOUT_MS="120000"
 # LOCAL_LLM_API_KEY is optional for local OpenAI-compatible servers.
 NVIDIA_API_KEY=""
 NVIDIA_BASE_URL="https://integrate.api.nvidia.com/v1"
 NVIDIA_MODEL="z-ai/glm-5.1"
-NVIDIA_MAX_TOKENS="16384"
+NVIDIA_MAX_TOKENS="900"
 NVIDIA_TIMEOUT_MS="120000"
 GEMINI_API_KEY=""
 # GOOGLE_API_KEY also works for Gemini if GEMINI_API_KEY is not set.
 GEMINI_MODEL="gemini-2.5-flash"
+GEMINI_MAX_OUTPUT_TOKENS="900"
 ```
 
 `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `NVIDIA_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, or a local OpenAI-compatible server is required for live model reasoning. `MODEL_PROVIDER` can force `anthropic`, `openai`, `local`, `nvidia`, or `gemini`; leave it unset for automatic order. For local models, set `MODEL_PROVIDER="local"` and point `LOCAL_LLM_BASE_URL` at an OpenAI-compatible endpoint such as Ollama's `http://127.0.0.1:11434/v1` or LM Studio's `http://127.0.0.1:1234/v1`. AgentVault intentionally fails the reasoning step when no live model is configured; it does not fall back to canned agent prose. When multiple providers are configured without `MODEL_PROVIDER`, AgentVault tries Anthropic first, then OpenAI, then a configured local server, then NVIDIA, then Gemini/Google.
+Configured model output limits are parsed as positive integers and clamped by the server to a hard maximum of 2,048 tokens per live-model call.
 
 Useful verification commands:
 
